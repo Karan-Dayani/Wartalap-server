@@ -3,6 +3,7 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const userRoutes = require("./routes/userRoutes");
 const messageRoutes = require("./routes/messageRoutes");
+const socket = require("socket.io");
 
 const app = express();
 require("dotenv").config();
@@ -24,4 +25,41 @@ mongoose
 
 const server = app.listen(process.env.PORT, () => {
   console.log("server started on", process.env.PORT);
+});
+
+const io = socket(server, { cors: { origin: "*", credentials: true } });
+
+global.onlineUsers = new Map();
+global.activeChats = new Map();
+
+io.on("connection", (socket) => {
+  global.chatSocket = socket;
+
+  socket.on("add-user", async (userId) => {
+    onlineUsers.set(userId, socket.id);
+
+    io.emit("online-user", userId);
+  });
+
+  socket.on("set-active-chat", ({ userId, activeChat }) => {
+    activeChats.set(userId, activeChat);
+  });
+
+  socket.on("send-msg", (data) => {
+    const sendUserSocket = onlineUsers.get(data.to);
+    const activeChat = activeChats.get(data.to);
+
+    if (sendUserSocket && activeChat === data.from) {
+      socket.to(sendUserSocket).emit("msg-recieve", data);
+    }
+  });
+
+  socket.on("delete-msg", (data) => {
+    const sendUserSocket = onlineUsers.get(data.to);
+    const activeChat = activeChats.get(data.to);
+
+    if (sendUserSocket && activeChat === data.from) {
+      socket.to(sendUserSocket).emit("msg-deleted", data);
+    }
+  });
 });
